@@ -205,6 +205,54 @@ export function runSystemsValidators(
   return { results, passed, failed };
 }
 
+// ─── Systems fix runner (walks validators[] with supportsFix) ──────────────
+
+export interface FixSystemsResult {
+  results: StepResult[];
+  passed: number;
+  failed: number;
+}
+
+/** Walk active systems' validators[] where supportsFix === true, run each with --fix. */
+export function runSystemsFix(
+  systems: readonly SystemContract[],
+  opts: SystemsRunnerOpts,
+): FixSystemsResult {
+  const active = getActiveSystems(systems);
+  const fixable = active.flatMap((s) =>
+    s.validators
+      .filter((v) => v.supportsFix)
+      .map((v) => ({ system: s.name, name: v.name, script: v.script })),
+  );
+
+  console.log(`${fixable.length} fixable validator(s)\n`);
+
+  const results: StepResult[] = [];
+  for (const fix of fixable) {
+    const r = runScript(fix.script, { ...opts, args: " --fix" });
+    results.push({ system: fix.system, name: fix.name, script: fix.script, ...r });
+    if (r.success) {
+      if (opts.verbose) console.log(`  ✓ ${fix.name} (${Math.round(r.durationMs)}ms)`);
+      else process.stdout.write("✓");
+    } else {
+      console.log(`\n  ✗ ${fix.name} FAILED (${Math.round(r.durationMs)}ms)`);
+      if (r.error) console.log(`    ${r.error.split("\n").join("\n    ")}`);
+    }
+  }
+  if (!opts.verbose && results.length > 0) console.log("");
+
+  const passed = results.filter((r) => r.success).length;
+  const failed = results.filter((r) => !r.success).length;
+  console.log(`--- Results ---\nPassed: ${passed}/${results.length}`);
+  if (failed > 0) {
+    console.log(`\nFailed fixes:`);
+    for (const r of results.filter((r) => !r.success)) {
+      console.log(`  ✗ ${r.system}/${r.name}\n    script: ${r.script}`);
+    }
+  }
+  return { results, passed, failed };
+}
+
 // ─── Coverage (orphan detection) ───────────────────────────────────────────
 
 export interface CoverageOpts {

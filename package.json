@@ -1,6 +1,6 @@
 {
   "name": "@ebowwa/codegen-kit",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Shared generate/validate/check scaffolding for codegen — extracted from SecondSee's node-codegen. Domain-agnostic: any repo declares its generators + validators on top and gets write/--check/drift/umbrella machinery.",
   "type": "module",
   "exports": {

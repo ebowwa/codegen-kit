@@ -27,6 +27,7 @@ export {
   getActiveSystems,
   runSystemsGenerators,
   runSystemsValidators,
+  runSystemsFix,
   computeCoverage,
   findMissingClaimedScripts,
 } from "./systems.js";
@@ -40,6 +41,7 @@ export type {
   GenerateSystemsOpts,
   GenerateSystemsResult,
   ValidateSystemsResult,
+  FixSystemsResult,
   StepResult,
   CoverageOpts,
   CoverageReport,

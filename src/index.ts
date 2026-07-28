@@ -6,6 +6,7 @@ export {
   autogenMeta,
   buildNumber,
   commentHeader,
+  jsdocHeader,
   gitShortSha,
   generationTimestamp,
   stripVolatile,

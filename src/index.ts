@@ -20,3 +20,27 @@ export { newResult, isMainEntry, runValidatorCli } from "./validator.js";
 export type { ValidationError, ValidateResult, ResultBuilder } from "./validator.js";
 
 export { runUmbrella } from "./umbrella.js";
+
+export {
+  getSystem,
+  getSystemsByStatus,
+  getActiveSystems,
+  runSystemsGenerators,
+  runSystemsValidators,
+  computeCoverage,
+  findMissingClaimedScripts,
+} from "./systems.js";
+export type {
+  SystemContract,
+  SystemStatus,
+  SystemTarget,
+  GeneratorSpec,
+  SystemValidator,
+  SystemsRunnerOpts,
+  GenerateSystemsOpts,
+  GenerateSystemsResult,
+  ValidateSystemsResult,
+  StepResult,
+  CoverageOpts,
+  CoverageReport,
+} from "./systems.js";

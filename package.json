@@ -1,0 +1,10 @@
+{
+  "name": "@ebowwa/codegen-kit",
+  "version": "0.1.0",
+  "description": "Shared generate/validate/check scaffolding extracted from SecondSee's node-codegen. Domain-agnostic: any repo declares generators + validators on top and gets the write/--check/drift/umbrella machinery.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "license": "MIT"
+}

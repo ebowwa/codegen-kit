@@ -46,3 +46,38 @@ export type {
   CoverageOpts,
   CoverageReport,
 } from "./systems.js";
+
+export {
+  buildPackageGraph,
+  classifyLayer,
+  globToRegex,
+  findAllPackageJsons,
+  validateBuildOrder,
+  validateLayerRules,
+  findCriticalPath,
+  generatePackageGraphJson,
+  generatePackageGraphMd,
+  generateCIMatrix,
+  generateCIMatrixYaml,
+  generateCIMatrixJson,
+} from "./package-graph.js";
+export type {
+  PackageLayer,
+  PackageNode,
+  PackageGraph,
+  GraphOpts,
+  GraphIssue,
+  MatrixLevel,
+  CIMatrix,
+} from "./package-graph.js";
+
+export {
+  createInternalResolver,
+  generateAllPackageJsons,
+  checkAllPackageJsons,
+  runPackageManagerCli,
+} from "./package-manager.js";
+export type { PackageDefinition, PackageManagerOpts } from "./package-manager.js";
+
+export { discoverInternalVersions, SKIP_DIRS } from "./version-discovery.js";
+export type { VersionDiscoveryOpts } from "./version-discovery.js";

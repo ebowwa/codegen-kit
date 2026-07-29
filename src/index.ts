@@ -88,3 +88,6 @@ export type { DepDriftResult } from "./package-manager.js";
 
 export { discoverInternalVersions, SKIP_DIRS } from "./version-discovery.js";
 export type { VersionDiscoveryOpts } from "./version-discovery.js";
+
+export { renderSystemsReference, renderSystemsGraph } from "./registry-reporting.js";
+export type { SystemsReferenceOpts } from "./registry-reporting.js";

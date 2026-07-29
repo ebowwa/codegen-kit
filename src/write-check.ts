@@ -212,6 +212,15 @@ export function scaffoldFiles(
   const willOverwrite: ScaffoldEntry[] = [];
   const collisions: string[] = [];
 
+  // Check for duplicate paths within the input array itself.
+  const seenPaths = new Set<string>();
+  for (const entry of entries) {
+    if (seenPaths.has(entry.path)) {
+      throw new Error(`scaffoldFiles: duplicate path "${entry.path}" in input array.`);
+    }
+    seenPaths.add(entry.path);
+  }
+
   for (const entry of entries) {
     if (existsSync(entry.path)) {
       if (entry.overwrite) willOverwrite.push(entry);

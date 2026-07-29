@@ -2,7 +2,7 @@
 // writeOrCheck: single file. writeOrCheckMany: multi-file with diff display
 // (subsumes richer codegen loops like secondsee/node-codegen's).
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 
 /**
@@ -161,4 +161,78 @@ export function patchOrCheck(
   } else {
     console.log(`OK: ${path} up to date.`);
   }
+}
+
+// ─── Scaffold (collision-safe file creation with dry-run) ──────────────────
+
+export interface ScaffoldEntry {
+  readonly path: string;
+  readonly content: string;
+  readonly description: string;
+  /** Allow overwriting if the file already exists (default: false). */
+  readonly overwrite?: boolean;
+}
+
+export interface ScaffoldResult {
+  readonly created: string[];
+  readonly skipped: string[];
+  readonly overwritten: string[];
+}
+
+/**
+ * Create multiple new files safely. Refuses to overwrite existing files
+ * unless `overwrite: true` on the entry. Supports `--dry-run` (print plan
+ * without writing) and automatic rollback (if a later file fails, deletes
+ * files written earlier in the same call).
+ */
+export function scaffoldFiles(
+  entries: readonly ScaffoldEntry[],
+  opts: { dryRun?: boolean } = {},
+): ScaffoldResult {
+  const created: string[] = [];
+  const skipped: string[] = [];
+  const overwritten: string[] = [];
+
+  console.log(`\n${opts.dryRun ? "[DRY RUN] " : ""}Scaffolding ${entries.length} file(s):\n`);
+
+  for (const entry of entries) {
+    const exists = existsSync(entry.path);
+
+    if (exists && !entry.overwrite) {
+      console.log(`  SKIP: ${entry.description} — ${entry.path} already exists`);
+      skipped.push(entry.path);
+      continue;
+    }
+
+    if (opts.dryRun) {
+      console.log(`  ${exists ? "OVERWRITE" : "CREATE"}: ${entry.description} → ${entry.path}`);
+      if (exists) overwritten.push(entry.path);
+      else created.push(entry.path);
+      continue;
+    }
+
+    try {
+      mkdirSync(dirname(entry.path), { recursive: true });
+      writeFileSync(entry.path, entry.content, "utf-8");
+      console.log(`  ${exists ? "OVERWRITTEN" : "CREATED"}: ${entry.description} → ${entry.path}`);
+      if (exists) overwritten.push(entry.path);
+      else created.push(entry.path);
+    } catch (err: any) {
+      // Rollback: delete files created earlier in this call
+      console.error(`\n  ERROR writing ${entry.path}: ${err?.message ?? err}`);
+      console.error(`  Rolling back ${created.length} previously created file(s)...`);
+      for (const path of created) {
+        try { unlinkSync(path); } catch {}
+      }
+      throw err;
+    }
+  }
+
+  if (opts.dryRun) {
+    console.log(`\n[DRY RUN] ${created.length} would be created, ${overwritten.length} overwritten, ${skipped.length} skipped.`);
+  } else {
+    console.log(`\n${created.length} created, ${overwritten.length} overwritten, ${skipped.length} skipped.`);
+  }
+
+  return { created, skipped, overwritten };
 }

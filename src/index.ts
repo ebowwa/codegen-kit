@@ -78,6 +78,13 @@ export {
   runPackageManagerCli,
 } from "./package-manager.js";
 export type { PackageDefinition, PackageManagerOpts } from "./package-manager.js";
+export {
+  checkDepDrift,
+  fixDepDrift,
+  regenerateLockfiles,
+  runDepSyncCli,
+} from "./package-manager.js";
+export type { DepDriftResult } from "./package-manager.js";
 
 export { discoverInternalVersions, SKIP_DIRS } from "./version-discovery.js";
 export type { VersionDiscoveryOpts } from "./version-discovery.js";

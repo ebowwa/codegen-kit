@@ -12,7 +12,9 @@
 // versions, the layer classification — stays with each consumer; this module
 // provides the framework.
 
-import { resolve } from "node:path";
+import { resolve, dirname } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { writeOrCheckMany, type WriteEntry } from "./write-check.js";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -181,4 +183,115 @@ export function runPackageManagerCli(opts: PackageManagerOpts): void {
   const isCheck = typeof process !== "undefined" && process.argv.includes("--check");
   if (isCheck) checkAllPackageJsons(opts);
   else generateAllPackageJsons(opts);
+}
+
+// ─── Dep drift sync (lockfile management) ──────────────────────────────────
+
+export interface DepDriftResult {
+  readonly drift: Array<{ dep: string; versions: Map<string, string[]> }>;
+  readonly hasDrift: boolean;
+}
+
+/** Check if pinned external deps have different versions across packages. */
+export function checkDepDrift(opts: {
+  repoRoot: string;
+  packagePaths: readonly string[];
+  pinnedDeps: readonly string[];
+}): DepDriftResult {
+  const drift: Array<{ dep: string; versions: Map<string, string[]> }> = [];
+  const versionMap = new Map<string, Map<string, string[]>>();
+
+  for (const relPath of opts.packagePaths) {
+    const abs = resolve(opts.repoRoot, relPath);
+    if (!existsSync(abs)) continue;
+    const pkg = JSON.parse(readFileSync(abs, "utf-8"));
+    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+    for (const depName of opts.pinnedDeps) {
+      if (!(depName in deps)) continue;
+      if (!versionMap.has(depName)) versionMap.set(depName, new Map());
+      const vMap = versionMap.get(depName)!;
+      const ver = deps[depName];
+      if (!vMap.has(ver)) vMap.set(ver, []);
+      vMap.get(ver)!.push(relPath);
+    }
+  }
+
+  for (const [depName, vMap] of versionMap) {
+    if (vMap.size > 1) drift.push({ dep: depName, versions: vMap });
+  }
+
+  return { drift, hasDrift: drift.length > 0 };
+}
+
+/** Fix dep drift by pinning all packages to the newest version. Returns fix count. */
+export function fixDepDrift(opts: {
+  repoRoot: string;
+  packagePaths: readonly string[];
+  pinnedDeps: readonly string[];
+}): number {
+  const { drift } = checkDepDrift(opts);
+  let fixes = 0;
+
+  for (const { dep, versions } of drift) {
+    const newest = [...versions.keys()].sort()[versions.size - 1];
+    for (const relPath of opts.packagePaths) {
+      const abs = resolve(opts.repoRoot, relPath);
+      if (!existsSync(abs)) continue;
+      const pkg = JSON.parse(readFileSync(abs, "utf-8"));
+      let modified = false;
+      for (const field of ["dependencies", "devDependencies"] as const) {
+        const deps = pkg[field];
+        if (!deps || !(dep in deps)) continue;
+        if (deps[dep] !== newest) { deps[dep] = newest; modified = true; fixes++; }
+      }
+      if (modified) writeFileSync(abs, JSON.stringify(pkg, null, 2) + "\n", "utf-8");
+    }
+  }
+  return fixes;
+}
+
+/** Run `bun install` across all packages to regenerate lockfiles. */
+export function regenerateLockfiles(opts: {
+  repoRoot: string;
+  packagePaths: readonly string[];
+}): Array<{ path: string; success: boolean; error?: string }> {
+  const results: Array<{ path: string; success: boolean; error?: string }> = [];
+  for (const relPath of opts.packagePaths) {
+    const abs = resolve(opts.repoRoot, relPath);
+    if (!existsSync(abs)) continue;
+    const pkgDir = dirname(abs);
+    try {
+      execSync("bun install --silent", { cwd: pkgDir, stdio: ["pipe", "pipe", "pipe"], timeout: 30_000 });
+      results.push({ path: relPath, success: true });
+    } catch (e: any) {
+      results.push({ path: relPath, success: false, error: e?.message?.split("\n")[0] ?? String(e) });
+    }
+  }
+  return results;
+}
+
+/** CLI entrypoint for dep drift sync — mirrors secondsee's sync-packages.ts. */
+export function runDepSyncCli(opts: {
+  repoRoot: string;
+  packagePaths: readonly string[];
+  pinnedDeps: readonly string[];
+}): void {
+  const isCheck = typeof process !== "undefined" && process.argv.includes("--check");
+
+  console.log("\n━━━ External dep drift check ━━━");
+  if (isCheck) {
+    const { drift } = checkDepDrift(opts);
+    for (const { dep, versions } of drift) {
+      console.log(`  DRIFT: ${dep}`);
+      for (const [ver, files] of versions) console.log(`    ${ver} → ${files.join(", ")}`);
+    }
+    if (drift.length === 0) console.log("  OK: all pinned deps in sync.");
+    if (drift.length > 0) { console.log(`\nFAIL: ${drift.length} drift issue(s).`); process.exit(1); }
+  } else {
+    const fixes = fixDepDrift(opts);
+    console.log(`\n${fixes > 0 ? `Fixed ${fixes} issue(s).` : "No changes needed."}`);
+    console.log("\n━━━ Regenerating lockfiles ━━━");
+    const results = regenerateLockfiles(opts);
+    for (const r of results) console.log(`  ${r.success ? "OK" : "WARN"}: ${r.path}${r.error ? ` — ${r.error}` : ""}`);
+  }
 }

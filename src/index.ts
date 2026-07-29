@@ -13,8 +13,8 @@ export {
 } from "./generation-meta.js";
 export type { AutogenMeta } from "./generation-meta.js";
 
-export { writeOrCheck, writeOrCheckMany, diffLines } from "./write-check.js";
-export type { WriteEntry } from "./write-check.js";
+export { writeOrCheck, writeOrCheckMany, diffLines, patchOrCheck } from "./write-check.js";
+export type { WriteEntry, PatchChange, PatchResult } from "./write-check.js";
 
 export { newResult, isMainEntry, runValidatorCli } from "./validator.js";
 export type { ValidationError, ValidateResult, ResultBuilder } from "./validator.js";

@@ -103,3 +103,62 @@ export function writeOrCheckMany(
   }
   if (failed) process.exit(1);
 }
+
+// ─── Patch (in-place file mutation with structural change reporting) ────────
+
+export interface PatchChange {
+  readonly action: "added" | "removed" | "modified";
+  readonly detail: string;
+}
+
+export interface PatchResult {
+  readonly changes: readonly PatchChange[];
+  readonly content: string;
+  readonly hasChanges: boolean;
+}
+
+/**
+ * Read a file, apply a transform that returns modified content + a list of
+ * structural changes, then either write or report.
+ *
+ * Unlike `writeOrCheck` (full-content comparison), patch reports WHAT changed
+ * structurally — for tools like xcodeproj that splice entries into an existing
+ * file and report "added 3 file references" rather than diffing the whole file.
+ */
+export function patchOrCheck(
+  path: string,
+  transform: (existing: string) => PatchResult,
+  opts: { check?: boolean; skipIfMissing?: boolean } = {},
+): void {
+  const check = opts.check ?? false;
+
+  if (!existsSync(path)) {
+    if (opts.skipIfMissing) {
+      console.log(`SKIP: ${path} not found.`);
+      return;
+    }
+    console.error(`FAIL: ${path} does not exist.`);
+    process.exit(1);
+  }
+
+  const existing = readFileSync(path, "utf-8");
+  const result = transform(existing);
+
+  if (result.hasChanges) {
+    if (check) {
+      console.log(`${path}: ${result.changes.length} change(s) needed:`);
+      for (const c of result.changes) {
+        console.log(`  ${c.action}: ${c.detail}`);
+      }
+      process.exit(1);
+    } else {
+      writeFileSync(path, result.content, "utf-8");
+      console.log(`${path}: applied ${result.changes.length} change(s):`);
+      for (const c of result.changes) {
+        console.log(`  ${c.action}: ${c.detail}`);
+      }
+    }
+  } else {
+    console.log(`OK: ${path} up to date.`);
+  }
+}

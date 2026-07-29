@@ -91,3 +91,18 @@ export type { VersionDiscoveryOpts } from "./version-discovery.js";
 
 export { renderSystemsReference, renderSystemsGraph } from "./registry-reporting.js";
 export type { SystemsReferenceOpts } from "./registry-reporting.js";
+
+export {
+  writeSnapshot,
+  readSnapshot,
+  diffSnapshots,
+  renderMigrationChangelog,
+  writeMigrationChangelog,
+} from "./snapshot.js";
+export type {
+  SnapshotChange,
+  SnapshotResult,
+  SnapshotOpts,
+  DiffRule,
+  ChangeSeverity,
+} from "./snapshot.js";

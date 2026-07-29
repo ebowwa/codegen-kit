@@ -1,36 +1,6 @@
 # @ebowwa/codegen-kit
 
-A framework for **declarative codegen** — declare your systems, generators, and validators; the kit runs them, checks for drift, and catches orphans. Extracted from secondsee's `node-codegen`, generalized for any repo.
-
-`codegen-kit` is the control plane around code generators you already have. It turns a collection of one-off scripts into an explicit, testable pipeline: what the source of truth is, which scripts derive which files, how those outputs are validated, and whether the repository is still synchronized.
-
-## Why this is useful
-
-Generated code creates a dependency graph that most repositories leave implicit. Once a project has several generators, common failures include:
-
-- A source schema changes, but one or more generated files are not regenerated.
-- Generated Swift, TypeScript, JSON, documentation, or configuration silently disagree.
-- CI can run generators, but cannot tell whether the committed output is stale.
-- Generator scripts accumulate without a clear owner, target, or validation contract.
-- Every generator reinvents file writing, `--check` behavior, diff output, provenance headers, and CLI handling.
-- Renamed or deleted scripts remain referenced by an umbrella command until someone trips over them.
-
-This kit makes those failures mechanical instead of organizational. It gives a repository:
-
-- **Reproducible generation** — the same write/check behavior across every generator.
-- **Drift enforcement in CI** — `--check` fails when committed generated files differ from current source inputs.
-- **A visible system map** — each source, target, generator, validator, and lifecycle state is declared together.
-- **Generator coverage** — unclaimed and missing scripts become detectable repository drift.
-- **Shared validation plumbing** — validators return a common result shape and get consistent CLI behavior.
-- **One pipeline as the repo grows** — run every active generator, validator, or supported fix from the registry.
-
-A typical workflow is: edit the source of truth, run generation locally, commit the derived outputs, then run the same generators in check mode in CI. If someone forgets an output or adds a generator outside the registry, the build fails with the specific drift instead of shipping inconsistent code.
-
-## What it does — and does not do
-
-`codegen-kit` does **not** define your schema, render Swift or TypeScript, or decide what your generated code should look like. Your repository owns that domain logic. The kit standardizes the surrounding lifecycle: generation, checking, validation, orchestration, provenance, and coverage.
-
-It is most useful when a repository has multiple generated targets, cross-language representations, committed generated artifacts, or enough generator scripts that ownership is no longer obvious. For a single disposable script with no committed output, it may be unnecessary.
+A framework for **declarative codegen** — declare your systems, generators, and validators; the kit runs them, checks for drift, catches orphans, manages packages, and detects breaking changes. Extracted from secondsee's `node-codegen`, generalized for any repo.
 
 ## Install
 
@@ -38,27 +8,47 @@ It is most useful when a repository has multiple generated targets, cross-langua
 npm install @ebowwa/codegen-kit
 ```
 
-## Two layers
+Requires Node 18+ or Bun 1.3+. Ships compiled JS + TypeScript declarations.
 
-### Primitives — the mechanical loop
+## Building from source
 
-The building blocks for individual generators and validators:
+```bash
+git clone https://github.com/ebowwa/codegen-kit
+cd codegen-kit
+bun install
+bun run build       # tsc → dist/
+bun test            # full test suite
+```
 
-- **`writeOrCheck(path, content, {check, strip})`** — write a file, or fail if the committed copy is stale (drift detection).
-- **`writeOrCheckMany(entries, {check, strip, diffLines})`** — multi-file variant: checks all files, shows per-file diffs on drift.
-- **`commentHeader({runCommand, by, source, prefix})`** / **`jsdocHeader({runCommand, by, source})`** — autogen headers (`//` block or `/** */` JSDoc).
-- **`runValidatorCli(name, result)`** / **`newResult(entityCount, claimCount)`** — validator CLI harness (`--verbose`/`--json`/`--fix`).
-- **`runUmbrella(commands, {cwd})`** — subprocess runner for check-all / validate-all umbrellas.
-- **`stripVolatile(s)`** / **`buildNumber()`** / **`autogenMeta(runCommand, source?)`** — provenance + drift stripping (reads the consumer's `package.json` via `process.cwd()`).
-- **`diffLines(a, b, max)`** — pure line-by-line diff helper.
+## Architecture
 
-### Systems framework — declarative registry
+Three layers, each building on the previous:
+
+### Layer 1 — Primitives
+
+The mechanical building blocks for file I/O, headers, and CLI handling:
+
+| Function | Purpose |
+|---|---|
+| `writeOrCheck(path, content, {check, strip})` | Write a file, or fail if the committed copy is stale |
+| `writeOrCheckMany(entries, {check, strip, diffLines})` | Multi-file: checks all, shows per-file diff on drift |
+| `patchOrCheck(path, transform, {check, skipIfMissing})` | In-place file mutation with structural change reporting |
+| `scaffoldFiles(entries, {dryRun})` | Collision-safe file creation with preflight, backup, and rollback |
+| `commentHeader({runCommand, by, source, prefix})` | `//` block autogen header |
+| `jsdocHeader({runCommand, by, source})` | `/** */` JSDoc autogen header |
+| `buildNumber()` | `semver+sha` provenance stamp |
+| `stripVolatile(s)` | Case-insensitive drift stripping (JSON + comment forms) |
+| `diffLines(a, b, max)` | Pure line-by-line diff helper |
+| `runValidatorCli(name, result)` | Validator CLI harness (`--verbose`/`--json`/`--fix`) |
+| `newResult(entityCount, claimCount)` | Mutable error/warning builder |
+| `isMainEntry(importMetaUrl, file)` | Import.meta entry-point guard |
+| `runUmbrella(commands, {cwd})` | Subprocess runner for umbrellas |
+
+### Layer 2 — Systems framework
 
 Declare your codegen systems as data; the kit walks them:
 
 ```ts
-import { SystemContract, runSystemsGenerators, runSystemsValidators, computeCoverage } from "@ebowwa/codegen-kit";
-
 const SYSTEMS: SystemContract[] = [
   {
     name: "my-types",
@@ -66,21 +56,33 @@ const SYSTEMS: SystemContract[] = [
     source: "src/types.ts",
     targets: [{ lang: "swift", path: "dist/Types.swift", description: "iOS types" }],
     generators: [{ name: "swift", script: "src/commands/generate-swift.ts", description: "Swift types" }],
-    validators: [{ name: "bijection", script: "src/validators/check-bijection.ts", description: "Cross-language constant parity" }],
+    validators: [{ name: "bijection", script: "src/validators/check-bijection.ts", description: "Cross-language parity" }],
     status: "active",
   },
 ];
 ```
 
-From that declaration, the kit provides:
+| Function | Purpose |
+|---|---|
+| `runSystemsGenerators(systems, {packageRoot, repoRoot, check, verbose})` | Walk active systems' `generators[]` |
+| `runSystemsValidators(systems, {packageRoot, repoRoot, verbose})` | Walk active systems' `validators[]` |
+| `runSystemsFix(systems, {packageRoot, repoRoot, verbose})` | Walk validators with `supportsFix` |
+| `computeCoverage(systems, {commandsDir, repoRoot, metaGenerators, acknowledgedOrphans})` | 4-bucket orphan detection |
+| `findMissingClaimedScripts(systems, repoRoot)` | Verify registry scripts exist |
+| `getSystem` / `getActiveSystems` / `getSystemsByStatus` | Registry helpers |
 
-- **`runSystemsGenerators(systems, {packageRoot, repoRoot, check, verbose})`** — walk active systems' `generators[]`, run each (pass `--check` for drift mode).
-- **`runSystemsValidators(systems, {packageRoot, repoRoot, verbose})`** — walk active systems' `validators[]`, run each.
-- **`computeCoverage(systems, {commandsDir, repoRoot, metaGenerators, acknowledgedOrphans})`** — 4-bucket orphan detection: every generator script must be **claimed** (by a system), **meta** (operates over systems), **acknowledged** (explicit TODO), or it's **drift** (fails CI).
-- **`findMissingClaimedScripts(systems, repoRoot)`** — verify every script referenced in the registry exists on disk.
-- Registry helpers: `getSystem`, `getActiveSystems`, `getSystemsByStatus`.
+### Layer 3 — Package management, reporting, snapshots
 
-## Usage
+| Module | Functions |
+|---|---|
+| **Registry reporting** | `renderSystemsReference`, `renderSystemsGraph` |
+| **Snapshot engine** | `diffSnapshots`, `writeSnapshot`, `readSnapshot`, `renderMigrationChangelog`, `writeMigrationChangelog` |
+| **Package manager** | `generateAllPackageJsons`, `checkAllPackageJsons`, `createInternalResolver`, `runPackageManagerCli` |
+| **Dep drift** | `checkDepDrift`, `fixDepDrift`, `regenerateLockfiles`, `runDepSyncCli` |
+| **Version discovery** | `discoverInternalVersions`, `SKIP_DIRS` |
+| **Package graph** | `buildPackageGraph`, `validateBuildOrder`, `validateLayerRules`, `generateCIMatrix`, `generatePackageGraphJson`, `generatePackageGraphMd`, `findCriticalPath`, `classifyLayer` |
+
+## Usage examples
 
 ### A single generator
 
@@ -106,22 +108,33 @@ if (isMainEntry(import.meta.url, "validate-foo.ts"))
   runValidatorCli("validate-foo", validate(model));
 ```
 
-### A registry-driven codegen pipeline
+### Policy-driven breaking-change detection
 
 ```ts
-// generate-systems.ts — one command runs every active system's generators
+import { diffSnapshots, renderMigrationChangelog } from "@ebowwa/codegen-kit";
+
+const result = diffSnapshots(opts, oldSnapshot, newSnapshot);
+if (result.hasBreaking) {
+  console.error(renderMigrationChangelog(result));
+  process.exit(1);
+}
+```
+
+### Registry-driven codegen pipeline
+
+```ts
 import { runSystemsGenerators } from "@ebowwa/codegen-kit";
 import { SYSTEMS } from "./registry.js";
 
 const { failed } = runSystemsGenerators(SYSTEMS, {
-  packageRoot: PACKAGE_ROOT, repoRoot: REPO_ROOT, check: isCheck, verbose,
+  packageRoot: PACKAGE_ROOT, repoRoot: REPO_ROOT, check: isCheck,
 });
 if (failed > 0) process.exit(1);
 ```
 
 ## Consumer
 
-- **secondsee/node-codegen** — the system the kit was generalized from. 48 generators + 52 header-backed outputs + the full declarative systems registry, all on the kit.
+- **secondsee/node-codegen** (`dev` branch) — 48 generators + 52 header-backed outputs + full declarative systems registry + all validators + package management, on the kit. Not yet merged to `prod`.
 
 ## License
 

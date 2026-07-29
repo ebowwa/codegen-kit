@@ -2,7 +2,7 @@
 // writeOrCheck: single file. writeOrCheckMany: multi-file with diff display
 // (subsumes richer codegen loops like secondsee/node-codegen's).
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, rmdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 /**
@@ -175,64 +175,132 @@ export interface ScaffoldEntry {
 
 export interface ScaffoldResult {
   readonly created: string[];
+  /** Kept for type stability; always empty now (collisions throw instead of skipping). */
   readonly skipped: string[];
   readonly overwritten: string[];
 }
 
 /**
- * Create multiple new files safely. Refuses to overwrite existing files
- * unless `overwrite: true` on the entry. Supports `--dry-run` (print plan
- * without writing) and automatic rollback (if a later file fails, deletes
- * files written earlier in the same call).
+ * Create multiple new files transactionally. The operation is atomic: either
+ * every entry is written, or none are.
+ *
+ * Phases:
+ *   1. Preflight — partition entries into create vs overwrite vs collision.
+ *      Any collision (existing file without `overwrite: true`) is reported and
+ *      aborts the whole call BEFORE any writes happen.
+ *   2. Backup — existing files marked for overwrite are read into memory so they
+ *      can be restored on failure.
+ *   3. Write — mkdir + writeFileSync each entry, tracking created vs overwritten.
+ *   4. Rollback — if any write throws, restore ALL overwritten files from the
+ *      backup map, delete ALL created files, and remove directories created
+ *      during this call. Then re-throw.
+ *
+ * In `dryRun` mode the preflight determines the plan, prints it, and returns
+ * without touching the filesystem. The result uses the same shape: `created`
+ * holds would-create paths, `overwritten` holds would-overwrite paths.
  */
 export function scaffoldFiles(
   entries: readonly ScaffoldEntry[],
   opts: { dryRun?: boolean } = {},
 ): ScaffoldResult {
-  const created: string[] = [];
-  const skipped: string[] = [];
-  const overwritten: string[] = [];
+  const dryRun = opts.dryRun ?? false;
 
-  console.log(`\n${opts.dryRun ? "[DRY RUN] " : ""}Scaffolding ${entries.length} file(s):\n`);
+  console.log(`\n${dryRun ? "[DRY RUN] " : ""}Scaffolding ${entries.length} file(s):\n`);
+
+  // ── 1. Preflight: detect collisions (atomicity starts here) ──────────────
+  const willCreate: ScaffoldEntry[] = [];
+  const willOverwrite: ScaffoldEntry[] = [];
+  const collisions: string[] = [];
 
   for (const entry of entries) {
-    const exists = existsSync(entry.path);
-
-    if (exists && !entry.overwrite) {
-      console.log(`  SKIP: ${entry.description} — ${entry.path} already exists`);
-      skipped.push(entry.path);
-      continue;
-    }
-
-    if (opts.dryRun) {
-      console.log(`  ${exists ? "OVERWRITE" : "CREATE"}: ${entry.description} → ${entry.path}`);
-      if (exists) overwritten.push(entry.path);
-      else created.push(entry.path);
-      continue;
-    }
-
-    try {
-      mkdirSync(dirname(entry.path), { recursive: true });
-      writeFileSync(entry.path, entry.content, "utf-8");
-      console.log(`  ${exists ? "OVERWRITTEN" : "CREATED"}: ${entry.description} → ${entry.path}`);
-      if (exists) overwritten.push(entry.path);
-      else created.push(entry.path);
-    } catch (err: any) {
-      // Rollback: delete files created earlier in this call
-      console.error(`\n  ERROR writing ${entry.path}: ${err?.message ?? err}`);
-      console.error(`  Rolling back ${created.length} previously created file(s)...`);
-      for (const path of created) {
-        try { unlinkSync(path); } catch {}
-      }
-      throw err;
+    if (existsSync(entry.path)) {
+      if (entry.overwrite) willOverwrite.push(entry);
+      else collisions.push(entry.path);
+    } else {
+      willCreate.push(entry);
     }
   }
 
-  if (opts.dryRun) {
-    console.log(`\n[DRY RUN] ${created.length} would be created, ${overwritten.length} overwritten, ${skipped.length} skipped.`);
-  } else {
-    console.log(`\n${created.length} created, ${overwritten.length} overwritten, ${skipped.length} skipped.`);
+  if (collisions.length > 0) {
+    console.error(`  COLLISION: ${collisions.length} existing file(s) lack overwrite:true:`);
+    for (const p of collisions) console.error(`    - ${p}`);
+    throw new Error(
+      `scaffoldFiles: refusing to write — ${collisions.length} collision(s) detected.`,
+    );
   }
 
-  return { created, skipped, overwritten };
+  // ── 2. Dry-run: print the plan, return without writing ───────────────────
+  if (dryRun) {
+    const created: string[] = [];
+    const overwritten: string[] = [];
+    for (const e of willCreate) {
+      console.log(`  WOULD CREATE: ${e.description} → ${e.path}`);
+      created.push(e.path);
+    }
+    for (const e of willOverwrite) {
+      console.log(`  WOULD OVERWRITE: ${e.description} → ${e.path}`);
+      overwritten.push(e.path);
+    }
+    console.log(
+      `\n[DRY RUN] ${created.length} would be created, ${overwritten.length} overwritten, 0 skipped.`,
+    );
+    return { created, skipped: [], overwritten };
+  }
+
+  // ── 3. Backup overwritten files (so we can restore on failure) ───────────
+  const backup = new Map<string, string>();
+  for (const e of willOverwrite) backup.set(e.path, readFileSync(e.path, "utf-8"));
+
+  // ── 4. Write phase: mkdir + writeFileSync, with full rollback on throw ───
+  const created: string[] = [];
+  const overwritten: string[] = [];
+  const createdDirs: string[] = []; // dirs created during this call (for rollback)
+
+  const writeOne = (entry: ScaffoldEntry, isOverwrite: boolean): void => {
+    ensureTrackedDir(dirname(entry.path), createdDirs);
+    writeFileSync(entry.path, entry.content, "utf-8");
+    console.log(`  ${isOverwrite ? "OVERWRITTEN" : "CREATED"}: ${entry.description} → ${entry.path}`);
+    if (isOverwrite) overwritten.push(entry.path);
+    else created.push(entry.path);
+  };
+
+  try {
+    for (const e of willCreate) writeOne(e, false);
+    for (const e of willOverwrite) writeOne(e, true);
+  } catch (err: any) {
+    console.error(`\n  ERROR: ${err?.message ?? err}`);
+    console.error(
+      `  Rolling back: deleting ${created.length} created file(s), ` +
+        `restoring ${backup.size} overwritten file(s)...`,
+    );
+    // Delete every file created during this call.
+    for (const p of created) {
+      try { unlinkSync(p); } catch {}
+    }
+    // Restore every overwritten file from its backup (idempotent for untouched ones).
+    for (const [p, original] of backup) {
+      try { writeFileSync(p, original, "utf-8"); } catch {}
+    }
+    // Best-effort: remove directories created during this call, deepest first.
+    for (const d of [...createdDirs].sort().reverse()) {
+      try { rmdirSync(d); } catch {}
+    }
+    throw err;
+  }
+
+  console.log(`\n${created.length} created, ${overwritten.length} overwritten, 0 skipped.`);
+  return { created, skipped: [], overwritten };
+}
+
+/**
+ * Recursive mkdir that records every directory it creates (so rollback can
+ * remove them). Unlike `mkdirSync(dir, {recursive:true})`, this tracks each
+ * intermediate directory, not just the leaf.
+ */
+function ensureTrackedDir(dir: string, created: string[]): void {
+  if (dir === "" || dir === "." || existsSync(dir)) return;
+  const parent = dirname(dir);
+  if (parent !== dir) ensureTrackedDir(parent, created);
+  mkdirSync(dir);
+  created.push(dir);
 }

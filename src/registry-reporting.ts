@@ -130,7 +130,15 @@ export function renderSystemsReference(
 
 // ─── Mermaid graph ─────────────────────────────────────────────────────────
 
-/** Render a Mermaid flowchart of system → generators → targets. */
+/** Render a Mermaid flowchart of system → generators / targets.
+ *
+ *  Topology: a system owns its generators and its targets, but the contract
+ *  does NOT record which generator produces which target. We therefore connect
+ *  both generators and targets directly to the system node — honestly reflecting
+ *  what the contract declares, rather than fabricating a gen→target mapping.
+ *
+ *  Target node IDs are positional (`${sid}_target_${index}`) so that multiple
+ *  targets sharing the same language do not collapse into a single Mermaid node. */
 export function renderSystemsGraph(systems: readonly SystemContract[]): string {
   const active = systems.filter((s) => s.status === "active");
   const L: string[] = ["flowchart LR"];
@@ -143,15 +151,13 @@ export function renderSystemsGraph(systems: readonly SystemContract[]): string {
       L.push(`  ${gid}["${g.name}"]:::gen`);
       L.push(`  ${sid} --> ${gid}`);
     }
-    for (const t of s.targets) {
-      const tid = `${sid}_t_${t.lang}`.replace(/[^A-Za-z0-9_]/g, "_");
+    // Targets connect to the SYSTEM node (no gen→target mapping is recorded).
+    // Positional IDs guarantee uniqueness even when several targets share a language.
+    s.targets.forEach((t, i) => {
+      const tid = `${sid}_target_${i}`.replace(/[^A-Za-z0-9_]/g, "_");
       L.push(`  ${tid}(["${t.lang}"]):::target`);
-      // Connect to last generator if any, else to system
-      const source = s.generators.length > 0
-        ? `${sid}_${s.generators[s.generators.length - 1].name}`.replace(/[^A-Za-z0-9_]/g, "_")
-        : sid;
-      L.push(`  ${source} --> ${tid}`);
-    }
+      L.push(`  ${sid} --> ${tid}`);
+    });
   }
 
   L.push("  classDef system fill:#0d3d38,color:#fff;");

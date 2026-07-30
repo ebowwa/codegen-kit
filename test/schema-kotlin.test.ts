@@ -15,8 +15,10 @@ import {
   constantMap,
   struct,
   irEnum,
+  typeAlias,
   resolver,
   module,
+  irImport,
 } from "../src/schema/ir.js";
 import type { IRField, IRType } from "../src/schema/ir.js";
 
@@ -302,5 +304,52 @@ describe("emitKotlinModule", () => {
         "    )\n" +
         "}\n",
     );
+  });
+});
+
+// ─── Named-type refs + arrays in fields (category 1) ──────────────────────
+
+describe("emitKotlinDataClass — ref + array fields", () => {
+  test("named ref, array-of-ref, array-of-primitive, nullable array", () => {
+    const refField = (name: string, typeName: string, extra: Partial<IRField> = {}): IRField => ({
+      name, jsonKey: name, type: "ref", typeName, optional: false, ...extra,
+    });
+    const s = struct("DeviceEntry", [
+      refField("category", "DeviceCategory"),
+      refField("platforms", "DevicePlatform", { isArray: true }),
+      { name: "tags", jsonKey: "tags", type: "string", isArray: true, optional: false },
+      refField("maybe", "X", { isArray: true, optional: true }),
+    ]);
+    expect(emitKotlinDataClass(s)).toBe(
+      "data class DeviceEntry(\n" +
+        "    val category: DeviceCategory,\n" +
+        "    val platforms: List<DevicePlatform>,\n" +
+        "    val tags: List<String>,\n" +
+        "    val maybe: List<X>? = null\n" +
+        ")",
+    );
+  });
+});
+
+// ─── Free-form type-alias RHS (category 3) ────────────────────────────────
+
+describe("emitKotlinModule — type-alias rhs", () => {
+  test("rhs emitted verbatim inside a module", () => {
+    const ir = module("Types", [typeAlias("RoleMap", [], { rhs: "Map<String, String>" })]);
+    expect(emitKotlinModule(ir)).toBe(
+      "object Types {\n    typealias RoleMap = Map<String, String>\n}\n",
+    );
+  });
+});
+
+// ─── Imports dropped (category 2 — TS-oriented) ───────────────────────────
+
+describe("emitKotlinModule — import members dropped", () => {
+  test("TS-oriented import member produces no Kotlin output", () => {
+    const ir = module("M", [
+      irImport("./x.js", ["X"], true),
+      typeAlias("T", [], { rhs: "String" }),
+    ]);
+    expect(emitKotlinModule(ir)).toBe("object M {\n    typealias T = String\n}\n");
   });
 });

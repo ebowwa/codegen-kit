@@ -41,7 +41,22 @@ function ktType(t: IRType): string {
       return "Any";
     case "void":
       return "Unit";
+    // Refs are resolved per-field via ktFieldType(); reaching here means a ref
+    // was used in a type-only context, so fall back to the widest Kotlin type.
+    case "ref":
+      return "Any";
   }
+}
+
+/**
+ * Render a struct field's Kotlin type, honouring named refs and arrays:
+ * `DevicePlatform`, `List<DevicePlatform>`, `List<String>?`. `typeName` is
+ * required for `ref` fields (otherwise the field degenerates to `Any`).
+ */
+function ktFieldType(f: IRField): string {
+  const base = f.type === "ref" ? (f.typeName ?? "Any") : ktType(f.type);
+  const arrayed = f.isArray ? `List<${base}>` : base;
+  return arrayed + (f.optional ? "?" : "");
 }
 
 /** Escape a string for a Kotlin double-quoted literal. */
@@ -86,6 +101,8 @@ function ktLiteral(t: IRType, value: unknown): string {
       return ktAnyLiteral(value);
     case "void":
       return "Unit";
+    case "ref":
+      return String(value);
   }
 }
 
@@ -124,10 +141,9 @@ export function emitKotlinDataClass(s: IRStruct): string {
   const fields = s.fields
     .map((f) => {
       const name = escapeKotlinIdent(f.name);
-      const optMark = f.optional ? "?" : "";
       const def = ktFieldDefault(f);
       const defPart = def === null ? "" : ` = ${def}`;
-      return `    val ${name}: ${ktType(f.type)}${optMark}${defPart}`;
+      return `    val ${name}: ${ktFieldType(f)}${defPart}`;
     })
     .join(",\n");
   return `${kDoc(s.description)}data class ${s.name}(\n${fields}\n)`;
@@ -188,9 +204,9 @@ export function emitKotlinResolver(r: IRResolverFn): string {
   );
 }
 
-/** Internal: Kotlin has no string-union, so a type alias degrades to `String`. */
+/** Internal: with `rhs`, emit verbatim; otherwise a string-union degrades to `String`. */
 function emitKotlinTypeAliasInternal(ta: IRTypeAlias): string {
-  return `${kDoc(ta.description)}typealias ${ta.name} = String`;
+  return `${kDoc(ta.description)}typealias ${ta.name} = ${ta.rhs ?? "String"}`;
 }
 
 /** Dispatch a single member to its emitter (used by the module wrapper). */
@@ -212,6 +228,9 @@ export function emitKotlinMember(m: IRMember): string {
       return emitKotlinTypeAliasInternal(m);
     case "raw":
       return m.text;
+    // Unreachable: emitKotlinModule filters import members out before dispatch.
+    case "import":
+      return "";
   }
 }
 
@@ -225,7 +244,10 @@ export interface KotlinModuleOpts {
 }
 
 export function emitKotlinModule(ir: IRModule, opts: KotlinModuleOpts = {}): string {
+  // Import members are TS-oriented and have no Kotlin form (see IRImport); drop
+  // them before dispatch.
   const members = ir.members
+    .filter((m) => m.kind !== "import")
     .map((m) => indentLines(emitKotlinMember(m), "    "))
     .join("\n\n");
   const pkgLine = opts.package ? `package ${opts.package}\n\n` : "";

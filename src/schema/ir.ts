@@ -1,12 +1,12 @@
 // @ebowwa/codegen-kit/schema — neutral intermediate representation.
 //
 // Language-agnostic types that describe declarations (constants, sets, maps,
-// structs, enums, type aliases, resolver functions) in a form that any
-// per-language emitter (Swift, Kotlin, TypeScript) can consume.
+// structs, enums, type aliases, resolver functions, imports, raw blocks) in a
+// form that any per-language emitter (Swift, Kotlin, TypeScript) can consume.
 
 // ─── Type system ──────────────────────────────────────────────────────────
 
-export type IRType = "string" | "int" | "float" | "bool" | "bytes" | "any" | "void";
+export type IRType = "string" | "int" | "float" | "bool" | "bytes" | "any" | "void" | "ref";
 
 // ─── Members ──────────────────────────────────────────────────────────────
 
@@ -41,6 +41,14 @@ export interface IRField {
   /** Wire/JSON name (snake_case, kebab-case, etc.). */
   readonly jsonKey: string;
   readonly type: IRType;
+  /**
+   * Named type when `type === "ref"` (e.g. "DeviceCategory", "DispatchHandler").
+   * Required for `ref` fields to render as anything useful; ignored for the
+   * primitive IR types.
+   */
+  readonly typeName?: string;
+  /** Render the field as an array of its type (TS `T[]`, Swift `[T]`, Kotlin `List<T>`). */
+  readonly isArray?: boolean;
   readonly optional: boolean;
   readonly default?: unknown;
   readonly description?: string;
@@ -67,7 +75,15 @@ export interface IREnum {
 export interface IRTypeAlias {
   readonly kind: "type-alias";
   readonly name: string;
+  /** String-union members, rendered `"a" | "b" | …`. Ignored when `rhs` is set. */
   readonly cases: readonly string[];
+  /**
+   * Free-form right-hand side. When set, emitted verbatim as
+   * `type Name = <rhs>` — for aliases the string-union form can't express
+   * (e.g. `Record<"sink" | "trigger" | "source", string[]>`). Takes precedence
+   * over `cases`.
+   */
+  readonly rhs?: string;
   readonly description?: string;
 }
 
@@ -99,6 +115,24 @@ export interface IRRaw {
   readonly text: string;
 }
 
+/**
+ * Import declaration. TypeScript-oriented: the TS emitter renders
+ * `import { A, B } from "path";` (or `import type { … } from "path";` when
+ * `isType`). Swift and Kotlin emitters drop import members — those languages
+ * handle imports at the module level (callers prepend `import Foundation` / set
+ * the Kotlin `package`) rather than as IR members, and a TS relative path has
+ * no meaningful Swift/Kotlin translation.
+ */
+export interface IRImport {
+  readonly kind: "import";
+  /** Module specifier, e.g. "./types.js" or "@ebowwa/workflow-edge". */
+  readonly path: string;
+  /** Named bindings; omit for a bare side-effect import. */
+  readonly named?: readonly string[];
+  /** Emit `import type { … }`. */
+  readonly isType?: boolean;
+}
+
 export type IRMember =
   | IRConstant
   | IRConstantSet
@@ -107,7 +141,8 @@ export type IRMember =
   | IREnum
   | IRTypeAlias
   | IRResolverFn
-  | IRRaw;
+  | IRRaw
+  | IRImport;
 
 export interface IRModule {
   readonly name: string;
@@ -140,14 +175,29 @@ export const irEnum = (name: string, cases: readonly string[], opts: {
 } = {}): IREnum =>
   ({ kind: "enum", name, cases, rawValueType: opts.rawValueType ?? "string", description: opts.description });
 
-export const typeAlias = (name: string, cases: readonly string[], description?: string): IRTypeAlias =>
-  ({ kind: "type-alias", name, cases, description });
+export const typeAlias = (
+  name: string,
+  cases: readonly string[],
+  optsOrDescription?: string | { rhs?: string; description?: string },
+): IRTypeAlias => {
+  const isOpts = typeof optsOrDescription === "object";
+  return {
+    kind: "type-alias",
+    name,
+    cases,
+    rhs: isOpts ? optsOrDescription.rhs : undefined,
+    description: isOpts ? optsOrDescription.description : optsOrDescription,
+  };
+};
 
 export const resolver = (name: string, paramName: string, lookupMap: Record<string, string>, fallback: string, returnType: IRType = "string", description?: string): IRResolverFn =>
   ({ kind: "resolver", name, paramName, lookupMap, fallback, returnType, description });
 
 export const raw = (text: string): IRRaw =>
   ({ kind: "raw", text });
+
+export const irImport = (path: string, named?: readonly string[], isType = false): IRImport =>
+  ({ kind: "import", path, named, isType });
 
 export const module = (name: string, members: readonly IRMember[], description?: string): IRModule =>
   ({ name, members, description });

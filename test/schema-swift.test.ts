@@ -9,6 +9,7 @@ import {
   emitSwiftResolver,
 } from "../src/schema/emit/swift.js";
 import type { IRField, IRStruct, IRModule } from "../src/schema/ir.js";
+import { typeAlias, irImport, module } from "../src/schema/ir.js";
 
 /** Field builder — keeps struct literals below readable. */
 const field = (
@@ -549,6 +550,62 @@ describe("emitSwiftModule", () => {
         "    }",
         "}",
       ].join("\n"),
+    );
+  });
+});
+
+// ─── Named-type refs + arrays in fields (category 1) ──────────────────────
+
+describe("emitSwiftStruct — ref + array fields", () => {
+  test("named ref, array-of-ref, array-of-primitive, optional array", () => {
+    const s: IRStruct = {
+      kind: "struct",
+      name: "Refs",
+      conformance: [],
+      emitCodingKeys: "when-needed",
+      emitInit: false,
+      fields: [
+        field("category", "category", "ref", { typeName: "DeviceCategory" }),
+        field("platforms", "platforms", "ref", { typeName: "DevicePlatform", isArray: true }),
+        field("tags", "tags", "string", { isArray: true }),
+        field("maybe", "maybe", "ref", { typeName: "X", isArray: true, optional: true }),
+      ],
+    };
+    expect(emitSwiftStruct(s)).toBe(
+      [
+        "struct Refs {",
+        "",
+        "    let category: DeviceCategory",
+        "    let platforms: [DevicePlatform]",
+        "    let tags: [String]",
+        "    let maybe: [X]?",
+        "}",
+      ].join("\n"),
+    );
+  });
+});
+
+// ─── Free-form type-alias RHS (category 3) ────────────────────────────────
+
+describe("emitSwiftModule — type-alias rhs", () => {
+  test("rhs emitted verbatim inside a module", () => {
+    const ir = module("Types", [typeAlias("RoleMap", [], { rhs: "[String: String]" })]);
+    expect(emitSwiftModule(ir)).toBe(
+      ["public enum Types {", "    typealias RoleMap = [String: String]", "}"].join("\n"),
+    );
+  });
+});
+
+// ─── Imports dropped (category 2 — TS-oriented) ───────────────────────────
+
+describe("emitSwiftModule — import members dropped", () => {
+  test("TS-oriented import member produces no Swift output", () => {
+    const ir = module("M", [
+      irImport("./x.js", ["X"], true),
+      typeAlias("T", [], { rhs: "String" }),
+    ]);
+    expect(emitSwiftModule(ir)).toBe(
+      ["public enum M {", "    typealias T = String", "}"].join("\n"),
     );
   });
 });

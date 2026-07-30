@@ -100,7 +100,13 @@ function ktFieldDefault(field: IRField): string | null {
 // ─── KDoc ─────────────────────────────────────────────────────────────────
 
 function kDoc(description?: string): string {
-  return description ? `/** ${description} */\n` : "";
+  if (!description) return "";
+  const lines = description.split("\n");
+  // Single-line descriptions render inline (`/** ... */`); multi-line ones get
+  // the proper one-`*`-per-line form. Mirrors the Swift emitter's docLines().
+  if (lines.length <= 1) return `/** ${description} */\n`;
+  const body = lines.map((l) => ` * ${l}`).join("\n");
+  return `/**\n${body}\n */\n`;
 }
 
 // ─── Indentation (preserves blank lines as blank) ────────────────────────
@@ -204,6 +210,8 @@ export function emitKotlinMember(m: IRMember): string {
       return emitKotlinResolver(m);
     case "type-alias":
       return emitKotlinTypeAliasInternal(m);
+    case "raw":
+      return m.text;
   }
 }
 
@@ -212,6 +220,8 @@ export function emitKotlinMember(m: IRMember): string {
 export interface KotlinModuleOpts {
   /** Emits a `package <name>` line at the top when set. */
   package?: string;
+  /** Insert a blank line after `object <name> {` (before the first member). */
+  blankLineAfterOpen?: boolean;
 }
 
 export function emitKotlinModule(ir: IRModule, opts: KotlinModuleOpts = {}): string {
@@ -219,6 +229,7 @@ export function emitKotlinModule(ir: IRModule, opts: KotlinModuleOpts = {}): str
     .map((m) => indentLines(emitKotlinMember(m), "    "))
     .join("\n\n");
   const pkgLine = opts.package ? `package ${opts.package}\n\n` : "";
-  const body = members ? `\n${members}\n` : "\n";
+  const openGap = opts.blankLineAfterOpen ? "\n" : "";
+  const body = members ? `\n${openGap}${members}\n` : "\n";
   return `${pkgLine}${kDoc(ir.description)}object ${ir.name} {${body}}\n`;
 }

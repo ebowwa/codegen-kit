@@ -81,6 +81,24 @@ export interface IRResolverFn {
   readonly description?: string;
 }
 
+/**
+ * Raw, pre-formed source text — the IR escape hatch.
+ *
+ * Use when a generator needs byte-exact output that the structured IR member
+ * kinds cannot express (e.g. language-specific idioms, section-divider
+ * comments, expression-bodied functions). The module emitters pass `text`
+ * through unchanged and indent it like any other member.
+ *
+ * `text` is written at column 0 (no leading indent); the module wrapper adds
+ * the per-line indent. To force a blank line after the opening brace of a
+ * module, prefer the module emitter's `blankLineAfterOpen` option over a
+ * leading "\n" in `text`.
+ */
+export interface IRRaw {
+  readonly kind: "raw";
+  readonly text: string;
+}
+
 export type IRMember =
   | IRConstant
   | IRConstantSet
@@ -88,7 +106,8 @@ export type IRMember =
   | IRStruct
   | IREnum
   | IRTypeAlias
-  | IRResolverFn;
+  | IRResolverFn
+  | IRRaw;
 
 export interface IRModule {
   readonly name: string;
@@ -126,6 +145,9 @@ export const typeAlias = (name: string, cases: readonly string[], description?: 
 
 export const resolver = (name: string, paramName: string, lookupMap: Record<string, string>, fallback: string, returnType: IRType = "string", description?: string): IRResolverFn =>
   ({ kind: "resolver", name, paramName, lookupMap, fallback, returnType, description });
+
+export const raw = (text: string): IRRaw =>
+  ({ kind: "raw", text });
 
 export const module = (name: string, members: readonly IRMember[], description?: string): IRModule =>
   ({ name, members, description });

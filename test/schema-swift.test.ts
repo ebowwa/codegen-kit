@@ -47,9 +47,13 @@ describe("emitSwiftConstant", () => {
     expect(out).toBe('static let codec: String = "he said \\"hi\\""');
   });
 
-  test("float value always carries a decimal place", () => {
+  test("float value uses String(Number(raw)) to byte-match swift-config-structs", () => {
+    // Integer-valued floats render without a trailing ".0" (e.g. 2 → "2", not "2.0");
+    // fractional values render as-is (e.g. 0.5 → "0.5").
     const out = emitSwiftConstant({ kind: "constant", name: "ratio", valueType: "float", value: 2 });
-    expect(out).toBe("static let ratio: Double = 2.0");
+    expect(out).toBe("static let ratio: Double = 2");
+    const frac = emitSwiftConstant({ kind: "constant", name: "ratio", valueType: "float", value: 0.5 });
+    expect(frac).toBe("static let ratio: Double = 0.5");
   });
 });
 
@@ -205,6 +209,7 @@ describe("emitSwiftStruct", () => {
     expect(emitSwiftStruct(s)).toBe(
       [
         "struct AllTypes: Codable, Sendable {",
+        "",
         "    let strVal: String",
         "    let intVal: Int",
         "    let floatVal: Double",
@@ -261,6 +266,7 @@ describe("emitSwiftStruct", () => {
     expect(emitSwiftStruct(s)).toBe(
       [
         "struct CameraSourceConfig: Codable, Sendable {",
+        "",
         "    let visionFps: Double",
         "    let codec: String",
         "    /// Smart punctuation",
@@ -273,7 +279,7 @@ describe("emitSwiftStruct", () => {
         "    }",
         "",
         "    init(",
-        "        visionFps: Double = 1.0,",
+        "        visionFps: Double = 1,",
         '        codec: String = "jpeg",',
         "        punctuation: Bool = true",
         "    ) {",
@@ -298,6 +304,7 @@ describe("emitSwiftStruct", () => {
     expect(emitSwiftStruct(s)).toBe(
       [
         "struct NoCK: Codable, Sendable {",
+        "",
         "    let foo: String",
         "    let bar: Int",
         "",
@@ -325,6 +332,7 @@ describe("emitSwiftStruct", () => {
     expect(emitSwiftStruct(s)).toBe(
       [
         "struct WithCK: Codable, Sendable {",
+        "",
         "    let fooBar: String",
         "",
         "    enum CodingKeys: String, CodingKey {",
@@ -347,6 +355,7 @@ describe("emitSwiftStruct", () => {
     expect(emitSwiftStruct(s)).toBe(
       [
         "struct NoInit: Codable, Sendable {",
+        "",
         "    let x: Int",
         "}",
       ].join("\n"),
@@ -367,6 +376,7 @@ describe("emitSwiftStruct", () => {
     expect(emitSwiftStruct(s)).toBe(
       [
         "struct Escaped: Codable, Sendable {",
+        "",
         "    let `type`: String",
         "    let `class`: String",
         "",
@@ -400,6 +410,7 @@ describe("emitSwiftStruct", () => {
     expect(emitSwiftStruct(s, { emitInit: false, emitCodingKeys: "when-needed" })).toBe(
       [
         "struct Override: Codable {",
+        "",
         "    let fooBar: String",
         "",
         "    enum CodingKeys: String, CodingKey {",
@@ -470,6 +481,7 @@ describe("emitSwiftModule", () => {
       [
         "public enum Wrapper {",
         "    struct Inner: Codable {",
+        "",
         "        let x: Int",
         "",
         "        enum CodingKeys: String, CodingKey {",

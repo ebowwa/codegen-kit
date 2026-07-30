@@ -41,21 +41,18 @@ function swiftType(t: IRType): string {
 
 // ─── Value formatting ─────────────────────────────────────────────────────
 
-/** Format a Double literal so it always carries at least one decimal place
- *  (e.g. 1 → "1.0", 0 → "0.0", 1.5 → "1.5"). Matches swift-config-structs
- *  output shape for float-typed defaults. */
-function swiftFloat(n: number): string {
-  if (Number.isInteger(n)) return `${n}.0`;
-  return String(n);
-}
-
 /** Format a literal Swift value for an init() default or constant initializer.
- *  Caller must ensure `raw` is defined (use swiftDefault() otherwise). */
+ *  Caller must ensure `raw` is defined (use swiftDefault() otherwise).
+ *
+ *  Float formatting uses `String(Number(raw))` (e.g. 1 → "1", 0.5 → "0.5")
+ *  to byte-match secondsee's swift-config-structs generator, which formats
+ *  float defaults via `String(Number(rawDefault))`. The language-level
+ *  default for floats with no IR default remains "0.0" (see swiftDefault). */
 function swiftValue(type: IRType, raw: unknown): string {
   switch (type) {
     case "string": return JSON.stringify(String(raw));
     case "int":    return String(Number(raw));
-    case "float":  return swiftFloat(Number(raw));
+    case "float":  return String(Number(raw));
     case "bool":   return Boolean(raw) ? "true" : "false";
     case "bytes":  return JSON.stringify(String(raw));
     case "any":    return JSON.stringify(String(raw));
@@ -192,7 +189,11 @@ export function emitSwiftStruct(s: IRStruct, opts: EmitSwiftStructOpts = {}): st
   const conf = s.conformance.length > 0 ? `: ${s.conformance.join(", ")}` : "";
   lines.push(`struct ${s.name}${conf} {`);
 
-  // Properties (no leading blank line — matches spec example).
+  // Blank line after `{` when there are fields — byte-matches secondsee's
+  // swift-config-structs output.
+  if (s.fields.length > 0) lines.push("");
+
+  // Properties.
   for (const f of s.fields) {
     for (const dl of docLines(f.description)) {
       lines.push(`    ${dl}`);
@@ -252,6 +253,8 @@ export function emitSwiftStruct(s: IRStruct, opts: EmitSwiftStructOpts = {}): st
 export interface EmitSwiftModuleOpts {
   /** Indent applied to each member line. Defaults to 4 spaces. */
   indent?: string;
+  /** Insert a blank line after `public enum <name> {` (before the first member). */
+  blankLineAfterOpen?: boolean;
 }
 
 export function emitSwiftModule(ir: IRModule, opts: EmitSwiftModuleOpts = {}): string {
@@ -268,6 +271,7 @@ export function emitSwiftModule(ir: IRModule, opts: EmitSwiftModuleOpts = {}): s
   });
 
   if (bodyChunks.length > 0) {
+    if (opts.blankLineAfterOpen) lines.push("");
     const body = bodyChunks.join("\n");
     for (const line of body.split("\n")) {
       lines.push(line === "" ? "" : indent + line);
@@ -289,5 +293,6 @@ function emitMember(m: IRMember): string {
     case "enum":         return emitSwiftEnum(m);
     case "resolver":     return emitSwiftResolver(m);
     case "type-alias":   return emitSwiftTypeAlias(m);
+    case "raw":          return m.text;
   }
 }

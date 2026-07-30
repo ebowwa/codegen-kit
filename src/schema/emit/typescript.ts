@@ -154,6 +154,8 @@ export function emitTsMember(m: IRMember): string {
       return emitTsTypeAlias(m);
     case "resolver":
       return emitTsResolver(m);
+    case "raw":
+      return m.text;
   }
 }
 

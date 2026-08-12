@@ -8,6 +8,7 @@ import {
   emitTsConstantMap,
   emitTsResolver,
   emitTsMember,
+  emitTsImport,
 } from "../src/schema/emit/typescript.js";
 import {
   constant,
@@ -18,6 +19,7 @@ import {
   typeAlias,
   resolver,
   module,
+  irImport,
 } from "../src/schema/ir.js";
 import type { IRField, IRType } from "../src/schema/ir.js";
 
@@ -259,5 +261,77 @@ describe("emitTsModule", () => {
   test("empty module → no trailing newline-only body", () => {
     expect(emitTsModule(module("Empty", []))).toBe("");
     expect(emitTsModule(module("Empty", [], "Nothing here."))).toBe("/** Nothing here. */");
+  });
+});
+
+// ─── Named-type refs + arrays in fields (category 1) ──────────────────────
+
+describe("emitTsInterface — ref + array fields", () => {
+  const ref = (name: string, typeName: string, extra: Partial<IRField> = {}): IRField => ({
+    name, jsonKey: name, type: "ref", typeName, optional: false, ...extra,
+  });
+
+  test("named ref, array-of-ref, array-of-primitive", () => {
+    const s = struct("DeviceEntry", [
+      ref("category", "DeviceCategory"),
+      ref("platforms", "DevicePlatform", { isArray: true }),
+      { name: "tags", jsonKey: "tags", type: "string", isArray: true, optional: false },
+      ref("fallback", "Unknown", { optional: true }),
+    ]);
+    expect(emitTsInterface(s)).toBe(
+      "export interface DeviceEntry {\n" +
+        "  category: DeviceCategory;\n" +
+        "  platforms: DevicePlatform[];\n" +
+        "  tags: string[];\n" +
+        "  fallback?: Unknown;\n" +
+        "}",
+    );
+  });
+
+  test("ref without typeName degrades to unknown", () => {
+    const s = struct("S", [{ name: "x", jsonKey: "x", type: "ref", optional: false }]);
+    expect(emitTsInterface(s)).toBe("export interface S {\n  x: unknown;\n}");
+  });
+});
+
+// ─── Free-form type-alias RHS (category 3) ────────────────────────────────
+
+describe("emitTsTypeAlias — rhs", () => {
+  test("rhs takes precedence over cases", () => {
+    const ta = typeAlias("SentinelRoleMap", [], {
+      rhs: 'Record<"sink" | "trigger" | "source", string[]>',
+    });
+    expect(emitTsTypeAlias(ta)).toBe(
+      'export type SentinelRoleMap = Record<"sink" | "trigger" | "source", string[]>;',
+    );
+  });
+
+  test("cases still used when rhs absent (backward compatible)", () => {
+    expect(emitTsTypeAlias(typeAlias("Kind", ["a", "b"]))).toBe('export type Kind = "a" | "b";');
+  });
+});
+
+// ─── Imports (category 2) ─────────────────────────────────────────────────
+
+describe("emitTsImport", () => {
+  test("type import with named bindings", () => {
+    expect(emitTsImport(irImport("../../../shared/types/workflow-types.js", ["NodeDefinition"], true)))
+      .toBe('import type { NodeDefinition } from "../../../shared/types/workflow-types.js";');
+  });
+
+  test("value import, multiple named bindings", () => {
+    expect(emitTsImport(irImport("@ebowwa/workflow-edge", ["NodeDefinition", "DeviceTarget"])))
+      .toBe('import { NodeDefinition, DeviceTarget } from "@ebowwa/workflow-edge";');
+  });
+
+  test("import member renders inside a module", () => {
+    const ir = module("generated-palette", [
+      irImport("@ebowwa/workflow-edge", ["NodeDefinition"], true),
+      constant("seed", "int", 1),
+    ]);
+    expect(emitTsModule(ir)).toBe(
+      'import type { NodeDefinition } from "@ebowwa/workflow-edge";\n\n' +
+        "export const SEED = 1 as const;\n",
+    );
   });
 });

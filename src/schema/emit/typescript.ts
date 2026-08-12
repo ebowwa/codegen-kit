@@ -9,10 +9,12 @@ import type {
   IRConstant,
   IRConstantSet,
   IRConstantMap,
+  IRField,
   IRStruct,
   IREnum,
   IRResolverFn,
   IRTypeAlias,
+  IRImport,
   IRType,
   IRMember,
   IRModule,
@@ -37,7 +39,22 @@ function tsType(t: IRType): string {
       return "unknown";
     case "void":
       return "void";
+    // Refs are resolved per-field via tsFieldType(); reaching here means a ref
+    // was used where a concrete type was expected (e.g. a resolver return type),
+    // so fall back to the widest TS type.
+    case "ref":
+      return "unknown";
   }
+}
+
+/**
+ * Render a struct field's TS type, honouring named refs and arrays:
+ * `DevicePlatform`, `DevicePlatform[]`, `string[]`. `typeName` is required for
+ * `ref` fields (otherwise the field degenerates to `unknown`).
+ */
+function tsFieldType(f: IRField): string {
+  const base = f.type === "ref" ? (f.typeName ?? "unknown") : tsType(f.type);
+  return f.isArray ? `${base}[]` : base;
 }
 
 /** Escape a string for a TS double-quoted literal. */
@@ -62,6 +79,8 @@ function tsLiteral(t: IRType, value: unknown): string {
       return JSON.stringify(value);
     case "void":
       return "undefined";
+    case "ref":
+      return "undefined";
   }
 }
 
@@ -77,7 +96,7 @@ export function emitTsInterface(s: IRStruct): string {
   const fields = s.fields
     .map((f) => {
       const opt = f.optional ? "?" : "";
-      return `  ${f.name}${opt}: ${tsType(f.type)};`;
+      return `  ${f.name}${opt}: ${tsFieldType(f)};`;
     })
     .join("\n");
   return `${jsDoc(s.description)}export interface ${s.name} {\n${fields}\n}`;
@@ -90,8 +109,15 @@ export function emitTsConstant(c: IRConstant): string {
 }
 
 export function emitTsTypeAlias(ta: IRTypeAlias): string {
-  const cases = ta.cases.map((c) => `"${escTsString(c)}"`).join(" | ");
-  return `${jsDoc(ta.description)}export type ${ta.name} = ${cases};`;
+  const rhs = ta.rhs ?? ta.cases.map((c) => `"${escTsString(c)}"`).join(" | ");
+  return `${jsDoc(ta.description)}export type ${ta.name} = ${rhs};`;
+}
+
+/** Emit a TS import: `import type { A, B } from "path";` / `import { A } from "path";`. */
+export function emitTsImport(im: IRImport): string {
+  const typeKw = im.isType ? "type " : "";
+  const bindings = im.named && im.named.length > 0 ? `{ ${im.named.join(", ")} } ` : "";
+  return `import ${typeKw}${bindings}from "${im.path}";`;
 }
 
 export function emitTsConstantSet(cs: IRConstantSet): string {
@@ -156,6 +182,8 @@ export function emitTsMember(m: IRMember): string {
       return emitTsResolver(m);
     case "raw":
       return m.text;
+    case "import":
+      return emitTsImport(m);
   }
 }
 

@@ -33,10 +33,24 @@ const SWIFT_TYPE: Record<IRType, string> = {
   bytes: "Data",
   any: "Any",
   void: "Void",
+  // Refs are resolved per-field via swiftFieldType(); this is the fallback when
+  // a ref reaches a type-only context (e.g. resolver return type).
+  ref: "Any",
 };
 
 function swiftType(t: IRType): string {
   return SWIFT_TYPE[t] ?? "Any";
+}
+
+/**
+ * Render a struct field's Swift type, honouring named refs and arrays:
+ * `DevicePlatform`, `[DevicePlatform]`, `[String]?`. `typeName` is required for
+ * `ref` fields (otherwise the field degenerates to `Any`).
+ */
+function swiftFieldType(f: IRField): string {
+  const base = f.type === "ref" ? (f.typeName ?? "Any") : swiftType(f.type);
+  const arrayed = f.isArray ? `[${base}]` : base;
+  return arrayed + (f.optional ? "?" : "");
 }
 
 // ─── Value formatting ─────────────────────────────────────────────────────
@@ -57,6 +71,7 @@ function swiftValue(type: IRType, raw: unknown): string {
     case "bytes":  return JSON.stringify(String(raw));
     case "any":    return JSON.stringify(String(raw));
     case "void":   return "()";
+    case "ref":    return String(raw);
   }
 }
 
@@ -73,6 +88,7 @@ function swiftDefault(type: IRType): string {
     case "bytes":  return "Data()";
     case "any":    return '""';
     case "void":   return "()";
+    case "ref":    return '""';
   }
 }
 
@@ -163,10 +179,10 @@ export function emitSwiftResolver(r: IRResolverFn): string {
 
 function emitSwiftTypeAlias(ta: IRTypeAlias): string {
   const lines = docLines(ta.description);
-  // IRTypeAlias.cases is a closed set of string values; the Swift counterpart
-  // is a String alias (the closed-set constraint isn't expressible in Swift
-  // without an enum, which the spec doesn't request).
-  lines.push(`typealias ${ta.name} = String`);
+  // With `rhs`, emit the alias verbatim. Otherwise IRTypeAlias.cases is a closed
+  // set of string values whose Swift counterpart is a plain String alias (the
+  // closed-set constraint isn't expressible in Swift without an enum).
+  lines.push(`typealias ${ta.name} = ${ta.rhs ?? "String"}`);
   return lines.join("\n");
 }
 
@@ -198,8 +214,7 @@ export function emitSwiftStruct(s: IRStruct, opts: EmitSwiftStructOpts = {}): st
     for (const dl of docLines(f.description)) {
       lines.push(`    ${dl}`);
     }
-    const typeStr = swiftType(f.type) + (f.optional ? "?" : "");
-    lines.push(`    let ${escapeSwiftIdent(f.name)}: ${typeStr}`);
+    lines.push(`    let ${escapeSwiftIdent(f.name)}: ${swiftFieldType(f)}`);
   }
 
   // CodingKeys: "always" → if there are any fields; "when-needed" → if any
@@ -229,11 +244,10 @@ export function emitSwiftStruct(s: IRStruct, opts: EmitSwiftStructOpts = {}): st
     lines.push("");
     lines.push("    init(");
     const params = s.fields.map(f => {
-      const typeStr = swiftType(f.type) + (f.optional ? "?" : "");
       const def = f.default !== undefined
         ? swiftValue(f.type, f.default)
         : (f.optional ? "nil" : swiftDefault(f.type));
-      return `        ${escapeSwiftIdent(f.name)}: ${typeStr} = ${def}`;
+      return `        ${escapeSwiftIdent(f.name)}: ${swiftFieldType(f)} = ${def}`;
     });
     lines.push(params.join(",\n"));
     lines.push("    ) {");
@@ -265,7 +279,10 @@ export function emitSwiftModule(ir: IRModule, opts: EmitSwiftModuleOpts = {}): s
   lines.push(`public enum ${ir.name} {`);
 
   const bodyChunks: string[] = [];
-  ir.members.forEach((m, i) => {
+  // Import members are TS-oriented and have no Swift form (see IRImport); drop
+  // them here so they never reach emitMember.
+  const emitMembers = ir.members.filter((m) => m.kind !== "import");
+  emitMembers.forEach((m, i) => {
     if (i > 0) bodyChunks.push("");
     bodyChunks.push(emitMember(m));
   });
@@ -294,5 +311,7 @@ function emitMember(m: IRMember): string {
     case "resolver":     return emitSwiftResolver(m);
     case "type-alias":   return emitSwiftTypeAlias(m);
     case "raw":          return m.text;
+    // Unreachable: emitSwiftModule filters import members out before dispatch.
+    case "import":       return "";
   }
 }

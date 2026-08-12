@@ -47,4 +47,5 @@ export {
   emitTsConstantSet,
   emitTsConstantMap,
   emitTsResolver,
+  emitTsImport,
 } from "./emit/typescript.js";

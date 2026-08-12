@@ -106,3 +106,55 @@ export type {
   DiffRule,
   ChangeSeverity,
 } from "./snapshot.js";
+
+// ── shapes: declare a codebase's architectural shape as a checkable contract ──
+// See ./shapes/*.js. Built-in probes register via side-effect when the runner is imported.
+export type {
+  ShapeArchetype,
+  ShapeAxisKey,
+  ShapeAxes,
+  ShapeRelation,
+  ShapeCompositionEdge,
+} from "./shapes/ontology.js";
+export type {
+  ShapeStatus,
+  InvariantSpec,
+  ShapeProbe,
+  ProbeContext,
+  ShapeContract,
+} from "./shapes/shape-contract.js";
+export { registerProbe, getProbe, listProbes } from "./shapes/shape-contract.js";
+export type {
+  ModuleNode,
+  ModuleEdge,
+  ModuleGraph,
+  GraphBuilderOpts,
+  GraphBuilder,
+} from "./shapes/graph.js";
+export {
+  findAllSourceFiles,
+  extractSpecifiers,
+  resolveSpecifier,
+  regexGraphBuilder,
+  findCycles,
+} from "./shapes/graph.js";
+export {
+  noCyclesProbe,
+  layerRulesProbe,
+  symbolIsolationProbe,
+  gateCoverageProbe,
+  fingerprintProbe,
+} from "./shapes/probes.js";
+export { classifyShape } from "./shapes/classify.js";
+export type { ShapeFingerprint } from "./shapes/classify.js";
+export {
+  serializeShape,
+  defaultShapeDiffRules,
+  writeShapeSnapshot,
+  diffShapeSnapshot,
+} from "./shapes/drift.js";
+export type { ShapeSnapshotItem } from "./shapes/drift.js";
+export { getActiveShapes, getShape, runShapesChecks } from "./shapes/runner.js";
+export type { ShapeRunOpts, InvariantResult, ShapeCheckReport } from "./shapes/runner.js";
+export { runShapesCli } from "./shapes/cli.js";
+export type { ShapesCliConfig } from "./shapes/cli.js";

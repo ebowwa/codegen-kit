@@ -132,6 +132,23 @@ const { failed } = runSystemsGenerators(SYSTEMS, {
 if (failed > 0) process.exit(1);
 ```
 
+## Examples
+
+The [`examples/`](examples) directory has four runnable demos — one per layer plus the
+`registerProbe` extensibility story. Clone and run them against the local source:
+
+```bash
+bun install
+bun run demo            # all four (shapes, codegen, custom-probe, systems)
+bun run demo:shapes     # declare an architecture as a ShapeContract, check it
+bun run demo:codegen    # the write / --check / drift loop
+bun run demo:probe      # register a custom probe, reference it by name
+bun run demo:systems    # walk a declarative SYSTEMS registry end-to-end
+```
+
+See [`examples/README.md`](examples/README.md) for what each demo shows. The demos import the
+local `src/` barrel; consumers of the published package import `@ebowwa/codegen-kit` instead.
+
 ## Consumer
 
 - **secondsee/node-codegen** (`dev` branch) — 48 generators + 52 header-backed outputs + full declarative systems registry + all validators + package management, on the kit. Not yet merged to `prod`.

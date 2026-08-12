@@ -19,7 +19,12 @@
     "build": "tsc",
     "test": "bun test",
     "typecheck": "bun x tsc --noEmit -p tsconfig.test.json",
-    "prepublishOnly": "bun run build"
+    "prepublishOnly": "bun run build",
+    "demo:shapes": "bun run examples/shapes-demo.ts",
+    "demo:codegen": "bun run examples/codegen-demo.ts",
+    "demo:probe": "bun run examples/custom-probe-demo.ts",
+    "demo:systems": "bun run examples/systems-demo.ts",
+    "demo": "bun run examples/shapes-demo.ts && bun run examples/codegen-demo.ts && bun run examples/custom-probe-demo.ts && bun run examples/systems-demo.ts"
   },
   "files": [
     "dist"

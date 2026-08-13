@@ -128,7 +128,7 @@ describe("emitTsTypeAlias", () => {
   });
 
   test("JSDoc when description set", () => {
-    expect(emitTsTypeAlias(typeAlias("K", ["a"], "Keys."))).toBe(
+    expect(emitTsTypeAlias(typeAlias("K", ["a"], { description: "Keys." }))).toBe(
       '/** Keys. */\nexport type K = "a";',
     );
   });

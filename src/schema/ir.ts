@@ -178,17 +178,14 @@ export const irEnum = (name: string, cases: readonly string[], opts: {
 export const typeAlias = (
   name: string,
   cases: readonly string[],
-  optsOrDescription?: string | { rhs?: string; description?: string },
-): IRTypeAlias => {
-  const isOpts = typeof optsOrDescription === "object";
-  return {
-    kind: "type-alias",
-    name,
-    cases,
-    rhs: isOpts ? optsOrDescription.rhs : undefined,
-    description: isOpts ? optsOrDescription.description : optsOrDescription,
-  };
-};
+  opts: { rhs?: string; description?: string } = {},
+): IRTypeAlias => ({
+  kind: "type-alias",
+  name,
+  cases,
+  rhs: opts.rhs,
+  description: opts.description,
+});
 
 export const resolver = (name: string, paramName: string, lookupMap: Record<string, string>, fallback: string, returnType: IRType = "string", description?: string): IRResolverFn =>
   ({ kind: "resolver", name, paramName, lookupMap, fallback, returnType, description });
